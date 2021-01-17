@@ -1244,7 +1244,15 @@ static const char * const cmd_receive_usage[] = {
 	"                 this file system is mounted.",
 	"--dump           dump stream metadata, one line per operation,",
 	"                 does not require the MOUNT parameter",
-	"--dump-json      dump stream metadata in JSON format,",
+	"--dump-format=FORMAT",
+	"                 specify the dump format. Valid FORMATs are",
+	"                   text (default)",
+	"                     Output in human-readable plain text",
+	"                   json-one-object",
+	"                     Output one JSON object containing an array of",
+	"                     changes",
+	"                   json-stream",
+	"                     Send each change as a JSON object on a new line",
 	"                 does not require the MOUNT parameter",
 	"-v               deprecated, alias for global -v option",
 	HELPINFO_INSERT_GLOBALS,
@@ -1262,7 +1270,7 @@ static int cmd_receive(const struct cmd_struct *cmd, int argc, char **argv)
 	int receive_fd = fileno(stdin);
 	u64 max_errors = 1;
 	int dump = 0;
-	int dump_json = 0;
+	int dump_format = DUMP_FORMAT_TEXT;
 	int ret = 0;
 
 	memset(&rctx, 0, sizeof(rctx));
@@ -1288,13 +1296,16 @@ static int cmd_receive(const struct cmd_struct *cmd, int argc, char **argv)
 	optind = 0;
 	while (1) {
 		int c;
-		enum { GETOPT_VAL_DUMP = 257,
-			GETOPT_VAL_DUMP_JSON = 258 };
+		enum {
+			GETOPT_VAL_DUMP = 257,
+			GETOPT_VAL_DUMP_FORMAT = 258
+		};
 		static const struct option long_opts[] = {
 			{ "max-errors", required_argument, NULL, 'E' },
 			{ "chroot", no_argument, NULL, 'C' },
 			{ "dump", no_argument, NULL, GETOPT_VAL_DUMP },
-			{ "dump-json", no_argument, NULL, GETOPT_VAL_DUMP_JSON },
+			{ "dump-format", required_argument, NULL,
+			  GETOPT_VAL_DUMP_FORMAT },
 			{ "quiet", no_argument, NULL, 'q' },
 			{ NULL, 0, NULL, 0 }
 		};
@@ -1338,9 +1349,13 @@ static int cmd_receive(const struct cmd_struct *cmd, int argc, char **argv)
 		case GETOPT_VAL_DUMP:
 			dump = 1;
 			break;
-		case GETOPT_VAL_DUMP_JSON:
+		case GETOPT_VAL_DUMP_FORMAT:
 			dump = 1;
-			dump_json = 1;
+			if (!strcmp("json-one-object", optarg)) {
+				dump_format = DUMP_FORMAT_JSON_ONE_OBJECT;
+			} else if (!strcmp("json-stream", optarg)) {
+				dump_format = DUMP_FORMAT_JSON_STREAM;
+			}
 			break;
 		default:
 			usage_unknown_option(cmd, argv);
@@ -1369,21 +1384,15 @@ static int cmd_receive(const struct cmd_struct *cmd, int argc, char **argv)
 		dump_args.root_path[1] = '\0';
 		dump_args.full_subvol_path[0] = '.';
 		dump_args.full_subvol_path[1] = '\0';
-		dump_args.json = dump_json;
-		if (dump_json) {
-			putchar('[');
-			putchar('\n');
-		}
+		dump_args.dump_format = dump_format;
+		dump_start(&dump_args);
 		ret = btrfs_read_and_process_send_stream(receive_fd,
 			&btrfs_print_send_ops, &dump_args, 0, max_errors);
 		if (ret < 0) {
 			errno = -ret;
 			error("failed to dump the send stream: %m");
 		}
-		if (dump_json) {
-			//Add an empty record so there isn't a trailing ,
-			printf(" {}\n]");
-		}
+		dump_end(&dump_args);
 	} else {
 		ret = do_receive(&rctx, tomnt, realmnt, receive_fd, max_errors);
 	}

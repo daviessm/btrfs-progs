@@ -51,7 +51,7 @@
  * Returns the length of the escaped characters. Unprintable characters are
  * escaped as octals.
  */
-static int print_path_escaped(const char *path, int json)
+static int print_path_escaped(const char *path, int dump_format)
 {
 	size_t i;
 	size_t path_len = strlen(path);
@@ -61,7 +61,7 @@ static int print_path_escaped(const char *path, int json)
 		char c = path[i];
 
 		len++;
-		if (!json) {
+		if (!dump_format) {
 			switch (c) {
 			case '\a': putchar('\\'); putchar('a'); len++; break;
 			case '\b': putchar('\\'); putchar('b'); len++; break;
@@ -127,10 +127,11 @@ static int __print_dump(int subvol, void *user, const char *path,
 	}
 
 
-	if (!r->json) {
+	//DUMP_FORMAT_TEXT == 0
+	if (!r->dump_format) {
 		/* Unified header */
 		printf("%-16s", title);
-		ret = print_path_escaped(out_path, r->json);
+		ret = print_path_escaped(out_path, r->dump_format);
 		if (!fmt) {
 			putchar('\n');
 			return 0;
@@ -145,9 +146,13 @@ static int __print_dump(int subvol, void *user, const char *path,
 		va_end(args);
 		putchar('\n');
 	} else {
+		if (r->dump_format == DUMP_FORMAT_JSON_ONE_OBJECT) {
+			//Indent the items in the array
+			printf("  ");
+		}
 		/* Unified header */
-		printf(" {\"operation\": \"%s\", \"path\": \"", title);
-		ret = print_path_escaped(out_path, r->json);
+		printf("{\"operation\": \"%s\", \"path\": \"", title);
+		ret = print_path_escaped(out_path, r->dump_format);
 		putchar('"');
 		if (!fmt) {
 			printf("},\n");
@@ -159,7 +164,11 @@ static int __print_dump(int subvol, void *user, const char *path,
 		/* Operation specified ones */
 		vprintf(fmt, args);
 		va_end(args);
-		printf("},\n");
+		if (r->dump_format == DUMP_FORMAT_JSON_ONE_OBJECT) {
+			printf("},\n");
+		} else if (r->dump_format == DUMP_FORMAT_JSON_STREAM) {
+			printf("}\n");
+		}
 	}
 	return 0;
 }
@@ -180,7 +189,7 @@ static int print_subvol(const char *path, const u8 *uuid, u64 ctransid,
 
 	uuid_unparse(uuid, uuid_str);
 
-	if (!r->json) {
+	if (!r->dump_format) {
 		return PRINT_DUMP_SUBVOL(user, path, "subvol",
 			"uuid=%s transid=%llu", uuid_str, ctransid);
 	} else {
@@ -202,7 +211,7 @@ static int print_snapshot(const char *path, const u8 *uuid, u64 ctransid,
 	uuid_unparse(uuid, uuid_str);
 	uuid_unparse(parent_uuid, parent_uuid_str);
 
-	if (r->json) {
+	if (r->dump_format) {
 		ret = PRINT_DUMP_SUBVOL(user, path, "snapshot",
 			"uuid=%s transid=%llu parent_uuid=%s parent_transid=%llu",
 				uuid_str, ctransid, parent_uuid_str,
@@ -231,7 +240,7 @@ static int print_mknod(const char *path, u64 mode, u64 dev, void *user)
 {
 	struct btrfs_dump_send_args *r = user;
 
-	if (!r->json) {
+	if (!r->dump_format) {
 		return PRINT_DUMP(user, path, "mknod", "mode=%llo dev=0x%llx",
 			  mode, dev);
 	} else {
@@ -263,7 +272,7 @@ static int print_rename(const char *from, const char *to, void *user)
 	int ret;
 
 	PATH_CAT_OR_RET("rename", full_to, r->full_subvol_path, to, ret);
-	if (!r->json) {
+	if (!r->dump_format) {
 		ret = PRINT_DUMP(user, from, "rename", "dest=%s", full_to);
 	} else {
 		ret = PRINT_DUMP(user, from, "rename", "\"dest\": \"%s\"",
@@ -277,7 +286,7 @@ static int print_link(const char *path, const char *lnk, void *user)
 	struct btrfs_dump_send_args *r = user;
 	int ret;
 
-	if (!r->json) {
+	if (!r->dump_format) {
 		ret = PRINT_DUMP(user, path, "link", "dest=%s", lnk);
 	} else {
 		ret = PRINT_DUMP(user, path, "link", "\"dest\": \"%s\"", lnk);
@@ -301,7 +310,7 @@ static int print_write(const char *path, const void *data, u64 offset,
 	struct btrfs_dump_send_args *r = user;
 	int ret;
 
-	if (!r->json) {
+	if (!r->dump_format) {
 		ret = PRINT_DUMP(user, path, "write", "offset=%llu len=%llu",
 			  offset, len);
 	} else {
@@ -324,7 +333,7 @@ static int print_clone(const char *path, u64 offset, u64 len,
 	PATH_CAT_OR_RET("clone", full_path, r->full_subvol_path, clone_path,
 			ret);
 
-	if (!r->json) {
+	if (!r->dump_format) {
 		ret = PRINT_DUMP(user, path, "clone",
 			  "offset=%llu len=%llu from=%s clone_offset=%llu",
 			  offset, len, full_path, clone_offset);
@@ -343,7 +352,7 @@ static int print_set_xattr(const char *path, const char *name,
 	struct btrfs_dump_send_args *r = user;
 	int ret;
 
-	if (!r->json) {
+	if (!r->dump_format) {
 		ret = PRINT_DUMP(user, path,
 			  "set_xattr", "name=%s data=%.*s len=%d",
 			  name, len, (char *)data, len);
@@ -361,7 +370,7 @@ static int print_remove_xattr(const char *path, const char *name, void *user)
 	struct btrfs_dump_send_args *r = user;
 	int ret;
 
-	if (!r->json) {
+	if (!r->dump_format) {
 		ret = PRINT_DUMP(user, path, "remove_xattr", "name=%s", name);
 	} else {
 		ret = PRINT_DUMP(user, path, "remove_xattr",
@@ -375,7 +384,7 @@ static int print_truncate(const char *path, u64 size, void *user)
 	struct btrfs_dump_send_args *r = user;
 	int ret;
 
-	if (!r->json) {
+	if (!r->dump_format) {
 		ret = PRINT_DUMP(user, path, "truncate", "size=%llu", size);
 	} else {
 		ret = PRINT_DUMP(user, path, "truncate", "\"size\": %llu", size);
@@ -388,7 +397,7 @@ static int print_chmod(const char *path, u64 mode, void *user)
 	struct btrfs_dump_send_args *r = user;
 	int ret;
 
-	if (!r->json) {
+	if (!r->dump_format) {
 		ret = PRINT_DUMP(user, path, "chmod", "mode=%llo", mode);
 	} else {
 		ret = PRINT_DUMP(user, path, "chmod", "\"mode\": \"%llo\"", mode);
@@ -401,7 +410,7 @@ static int print_chown(const char *path, u64 uid, u64 gid, void *user)
 	struct btrfs_dump_send_args *r = user;
 	int ret;
 
-	if (!r->json) {
+	if (!r->dump_format) {
 		ret = PRINT_DUMP(user, path, "chown", "gid=%llu uid=%llu",
 			  gid, uid);
 	} else {
@@ -447,7 +456,7 @@ static int print_utimes(const char *path, struct timespec *at,
 	    sprintf_timespec(mt, mt_str, TIME_STRING_MAX - 1) < 0 ||
 	    sprintf_timespec(ct, ct_str, TIME_STRING_MAX - 1) < 0)
 		return -EINVAL;
-	if (!r->json) {
+	if (!r->dump_format) {
 		ret = PRINT_DUMP(user, path,
 			  "utimes", "atime=%s mtime=%s ctime=%s",
 			  at_str, mt_str, ct_str);
@@ -466,7 +475,7 @@ static int print_update_extent(const char *path, u64 offset, u64 len,
 	struct btrfs_dump_send_args *r = user;
 	int ret;
 
-	if (!r->json) {
+	if (!r->dump_format) {
 		ret = PRINT_DUMP(user, path, "update_extent",
 			   "offset=%llu len=%llu", offset, len);
 	} else {
@@ -474,6 +483,22 @@ static int print_update_extent(const char *path, u64 offset, u64 len,
 			   "\"offset\": %llu, \"len\": %llu", offset, len);
 	}
 	return ret;
+}
+
+int dump_start(struct btrfs_dump_send_args *args)
+{
+	if (args->dump_format == DUMP_FORMAT_JSON_ONE_OBJECT) {
+		printf("{\n \"changes\": [\n");
+	}
+	return 0;
+}
+
+int dump_end(struct btrfs_dump_send_args *args)
+{
+	if (args->dump_format == DUMP_FORMAT_JSON_ONE_OBJECT) {
+		printf("  {}\n ]\n}\n");
+	}
+	return 0;
 }
 
 struct btrfs_send_ops btrfs_print_send_ops = {

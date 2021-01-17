@@ -19,12 +19,21 @@
 
 #include <linux/limits.h>
 
+enum btrfs_dump_format {
+	DUMP_FORMAT_TEXT = 0,
+	DUMP_FORMAT_JSON_ONE_OBJECT = 1,
+	DUMP_FORMAT_JSON_STREAM = 2,
+};
+
 struct btrfs_dump_send_args {
 	char full_subvol_path[PATH_MAX];
 	char root_path[PATH_MAX];
-	int json;
+	enum btrfs_dump_format dump_format;
 };
 
 extern struct btrfs_send_ops btrfs_print_send_ops;
+
+int dump_start(struct btrfs_dump_send_args *args);
+int dump_end(struct btrfs_dump_send_args *args);
 
 #endif
