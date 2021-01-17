@@ -1244,6 +1244,8 @@ static const char * const cmd_receive_usage[] = {
 	"                 this file system is mounted.",
 	"--dump           dump stream metadata, one line per operation,",
 	"                 does not require the MOUNT parameter",
+	"--dump-json      dump stream metadata in JSON format,",
+	"                 does not require the MOUNT parameter",
 	"-v               deprecated, alias for global -v option",
 	HELPINFO_INSERT_GLOBALS,
 	HELPINFO_INSERT_VERBOSE,
@@ -1260,6 +1262,7 @@ static int cmd_receive(const struct cmd_struct *cmd, int argc, char **argv)
 	int receive_fd = fileno(stdin);
 	u64 max_errors = 1;
 	int dump = 0;
+	int dump_json = 0;
 	int ret = 0;
 
 	memset(&rctx, 0, sizeof(rctx));
@@ -1285,11 +1288,13 @@ static int cmd_receive(const struct cmd_struct *cmd, int argc, char **argv)
 	optind = 0;
 	while (1) {
 		int c;
-		enum { GETOPT_VAL_DUMP = 257 };
+		enum { GETOPT_VAL_DUMP = 257,
+			GETOPT_VAL_DUMP_JSON = 258 };
 		static const struct option long_opts[] = {
 			{ "max-errors", required_argument, NULL, 'E' },
 			{ "chroot", no_argument, NULL, 'C' },
 			{ "dump", no_argument, NULL, GETOPT_VAL_DUMP },
+			{ "dump-json", no_argument, NULL, GETOPT_VAL_DUMP_JSON },
 			{ "quiet", no_argument, NULL, 'q' },
 			{ NULL, 0, NULL, 0 }
 		};
@@ -1333,6 +1338,10 @@ static int cmd_receive(const struct cmd_struct *cmd, int argc, char **argv)
 		case GETOPT_VAL_DUMP:
 			dump = 1;
 			break;
+		case GETOPT_VAL_DUMP_JSON:
+			dump = 1;
+			dump_json = 1;
+			break;
 		default:
 			usage_unknown_option(cmd, argv);
 		}
@@ -1360,11 +1369,20 @@ static int cmd_receive(const struct cmd_struct *cmd, int argc, char **argv)
 		dump_args.root_path[1] = '\0';
 		dump_args.full_subvol_path[0] = '.';
 		dump_args.full_subvol_path[1] = '\0';
+		dump_args.json = dump_json;
+		if (dump_json) {
+			putchar('[');
+			putchar('\n');
+		}
 		ret = btrfs_read_and_process_send_stream(receive_fd,
 			&btrfs_print_send_ops, &dump_args, 0, max_errors);
 		if (ret < 0) {
 			errno = -ret;
 			error("failed to dump the send stream: %m");
+		}
+		if (dump_json) {
+			//Add an empty record so there isn't a trailing ,
+			printf(" {}\n]");
 		}
 	} else {
 		ret = do_receive(&rctx, tomnt, realmnt, receive_fd, max_errors);

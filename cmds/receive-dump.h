@@ -22,6 +22,7 @@
 struct btrfs_dump_send_args {
 	char full_subvol_path[PATH_MAX];
 	char root_path[PATH_MAX];
+	int json;
 };
 
 extern struct btrfs_send_ops btrfs_print_send_ops;
